@@ -1,0 +1,31 @@
+# Core Framework
+streamlit==1.31.0
+
+# Data Processing
+pandas==2.2.0
+numpy==1.26.3
+
+# Market Data & APIs
+yfinance==0.2.36
+requests==2.31.0
+
+# Data Visualization
+plotly==5.18.0
+matplotlib==3.8.2
+
+# Database
+sqlalchemy==2.0.25
+
+# Date/Time
+python-dateutil==2.8.2
+
+# Configuration
+python-dotenv==1.0.1
+
+# Testing
+pytest==8.0.0
+pytest-cov==4.1.0
+
+# Code Quality
+black==24.1.1
+flake8==7.0.0
