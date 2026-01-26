@@ -1,0 +1,30 @@
+model:
+  n_regimes: 3
+  regime_names: ['glut', 'balanced', 'tight']
+  equilibrium:
+    utilization: 0.85
+    inventory_weeks: 12.0
+    capex_intensity: 0.35
+  thresholds:
+    tight:
+      utilization_min: 0.90
+      inventory_max: 8.0
+    glut:
+      utilization_max: 0.75
+      inventory_min: 18.0
+
+signals:
+  buy_threshold: 0.60      # P(tight) > this to buy
+  sell_threshold: 0.60     # P(glut) > this to sell
+  momentum_lookback: 3     # months for price momentum
+
+backtest:
+  min_train_periods: 20    # quarters
+  default_train_start: '2015-01-01'
+  default_test_start: '2020-01-01'
+
+display:
+  date_format: '%Y-Q%q'
+  price_decimals: 2
+  probability_decimals: 2
+  chart_theme: 'plotly_white'
