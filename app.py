@@ -21,6 +21,7 @@ from src.models.scenario import ScenarioIndicators
 from src.services.market_data_service import MarketDataService
 from src.services.scenario_detector import ScenarioDetector
 from src.services.portfolio_service import PortfolioService
+from src.services.dca_service import DCAService
 from src.utils.formatters import format_currency, format_percent
 
 
@@ -54,6 +55,12 @@ def initialize_session_state():
 
     if 'monthly_contribution' not in st.session_state:
         st.session_state.monthly_contribution = 1000.0
+
+    if 'dca_projection_months' not in st.session_state:
+        st.session_state.dca_projection_months = 12
+
+    if 'dca_assumed_return' not in st.session_state:
+        st.session_state.dca_assumed_return = 4.0
 
 
 def render_header():
@@ -260,16 +267,173 @@ def render_holdings_table(portfolio_service):
     st.dataframe(df, use_container_width=True, hide_index=True)
 
 
-def render_rebalancing_recommendation(portfolio_service):
-    """Render rebalancing recommendations."""
-    st.subheader("🎯 Rebalancing Recommendation")
-
-    recommendation = portfolio_service.get_rebalancing_recommendation(
-        st.session_state.target_allocation,
-        st.session_state.monthly_contribution
+def render_dca_allocation(dca_service: DCAService):
+    """Render DCA allocation recommendation."""
+    allocation = dca_service.calculate_allocation(
+        st.session_state.monthly_contribution,
+        st.session_state.target_allocation
     )
 
-    st.markdown(recommendation)
+    # Status indicator
+    if allocation.is_balanced:
+        st.success("Portfolio balanced - using proportional split")
+    else:
+        if allocation.cad_drift < 0:
+            st.warning(f"CAD underweight by {abs(allocation.cad_drift):.1f}% - allocating to CAD")
+        else:
+            st.warning(f"EUR underweight by {abs(allocation.eur_drift):.1f}% - allocating to EUR")
+
+    # Allocation metrics
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric(
+            "Total",
+            format_currency(allocation.total_amount, "CAD", 0)
+        )
+
+    with col2:
+        st.metric(
+            "CAD Bucket",
+            format_currency(allocation.cad_amount, "CAD", 0),
+            f"{allocation.cad_percent:.0f}%"
+        )
+
+    with col3:
+        st.metric(
+            "EUR Bucket",
+            format_currency(allocation.eur_amount, "CAD", 0),
+            f"{allocation.eur_percent:.0f}%"
+        )
+
+
+def render_dca_settings():
+    """Render DCA projection settings."""
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.session_state.dca_projection_months = st.slider(
+            "Projection Horizon (months)",
+            min_value=6,
+            max_value=60,
+            value=st.session_state.dca_projection_months,
+            step=6
+        )
+
+    with col2:
+        st.session_state.dca_assumed_return = st.number_input(
+            "Assumed Annual Return (%)",
+            min_value=0.0,
+            max_value=20.0,
+            value=st.session_state.dca_assumed_return,
+            step=0.5
+        )
+
+
+def render_dca_projection(dca_service: DCAService):
+    """Render DCA projection chart and summary."""
+    projection = dca_service.project_portfolio(
+        monthly_contribution=st.session_state.monthly_contribution,
+        target_allocations=st.session_state.target_allocation,
+        projection_months=st.session_state.dca_projection_months,
+        assumed_annual_return=st.session_state.dca_assumed_return
+    )
+
+    if not projection.points:
+        st.info("No projection data available.")
+        return
+
+    # Create projection chart
+    months = [0] + [p.month for p in projection.points]
+    total_values = [projection.starting_value] + [p.total_value_cad for p in projection.points]
+    cad_values = [dca_service.portfolio.cad_bucket_value] + [p.cad_bucket_value for p in projection.points]
+    eur_values = [dca_service.portfolio.eur_bucket_value_cad] + [p.eur_bucket_value_cad for p in projection.points]
+    contributions = [0] + [p.cumulative_contributions for p in projection.points]
+
+    fig = go.Figure()
+
+    # Stacked area for bucket values
+    fig.add_trace(go.Scatter(
+        x=months,
+        y=cad_values,
+        fill='tozeroy',
+        name='CAD Bucket',
+        line=dict(color='#28a745'),
+        fillcolor='rgba(40, 167, 69, 0.3)'
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=months,
+        y=[c + e for c, e in zip(cad_values, eur_values)],
+        fill='tonexty',
+        name='EUR Bucket',
+        line=dict(color='#17a2b8'),
+        fillcolor='rgba(23, 162, 184, 0.3)'
+    ))
+
+    # Total value line
+    fig.add_trace(go.Scatter(
+        x=months,
+        y=total_values,
+        name='Total Value',
+        line=dict(color='#343a40', width=2)
+    ))
+
+    # Cumulative contributions (dashed)
+    cumulative_with_start = [projection.starting_value + c for c in contributions]
+    fig.add_trace(go.Scatter(
+        x=months,
+        y=cumulative_with_start,
+        name='Cost Basis',
+        line=dict(color='#6c757d', dash='dash', width=1)
+    ))
+
+    fig.update_layout(
+        title="Portfolio Projection",
+        xaxis_title="Months",
+        yaxis_title="Value (CAD)",
+        height=350,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        hovermode="x unified"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Summary metrics
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric(
+            f"Projected Value ({projection.projection_months}mo)",
+            format_currency(projection.final_value, "CAD", 0)
+        )
+
+    with col2:
+        st.metric(
+            "Total Contributions",
+            format_currency(projection.total_contributions, "CAD", 0)
+        )
+
+    with col3:
+        st.metric(
+            "Projected Growth",
+            format_currency(projection.total_growth, "CAD", 0),
+            f"{projection.points[-1].total_growth_percent:.1f}%" if projection.points else "0%"
+        )
+
+
+def render_dca_planning(dca_service: DCAService):
+    """Render the complete DCA planning section."""
+    st.subheader("DCA Planning")
+
+    render_dca_allocation(dca_service)
+
+    st.divider()
+
+    st.markdown("**Projection Settings**")
+    render_dca_settings()
+
+    render_dca_projection(dca_service)
 
 
 def main():
@@ -320,13 +484,13 @@ def main():
     st.divider()
 
     # Portfolio summary
-    col1, col2 = st.columns([2, 1])
+    render_portfolio_summary(portfolio_service)
 
-    with col1:
-        render_portfolio_summary(portfolio_service)
+    st.divider()
 
-    with col2:
-        render_rebalancing_recommendation(portfolio_service)
+    # DCA Planning
+    dca_service = DCAService(st.session_state.portfolio)
+    render_dca_planning(dca_service)
 
     st.divider()
 

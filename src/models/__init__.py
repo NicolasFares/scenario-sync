@@ -4,6 +4,7 @@ Data models for the Portfolio Monitoring application.
 from .portfolio import Holding, Portfolio
 from .scenario import Scenario, ScenarioDetectionResult
 from .market_data import MarketData, YieldData, FXData
+from .dca import DCAStrategy, DCAAllocation, DCAProjectionPoint, DCAProjection
 
 __all__ = [
     "Holding",
@@ -12,5 +13,9 @@ __all__ = [
     "ScenarioDetectionResult",
     "MarketData",
     "YieldData",
-    "FXData"
+    "FXData",
+    "DCAStrategy",
+    "DCAAllocation",
+    "DCAProjectionPoint",
+    "DCAProjection",
 ]
